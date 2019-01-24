@@ -153,7 +153,7 @@
         
                                     ** Body Format **
                  ________________________________________________
-                |                  REQ (3 Chars)                 |
+                |                  RES (3 Chars)                 |
                 |------------------------------------------------|
                 |           Number of Entries (2 Chars)          |
                 |------------------------------------------------|
@@ -177,6 +177,8 @@
             
     
 """
+import unittest
+import warnings
 from struct import *
 
 
@@ -186,9 +188,9 @@ class Packet:
         The decoded buffer should convert to a new packet.
 
         :param buf: Input buffer was just decoded.
-        :type buf: bytearray
+        :type buf: list
         """
-        pass
+        self.buf = buf
 
     def get_header(self):
         """
@@ -204,7 +206,7 @@ class Packet:
         :return: Packet Version
         :rtype: int
         """
-        pass
+        return self.buf[0]
 
     def get_type(self):
         """
@@ -212,7 +214,7 @@ class Packet:
         :return: Packet type
         :rtype: int
         """
-        pass
+        return self.buf[1]
 
     def get_length(self):
         """
@@ -220,7 +222,7 @@ class Packet:
         :return: Packet length
         :rtype: int
         """
-        pass
+        return self.buf[2]
 
     def get_body(self):
         """
@@ -228,7 +230,7 @@ class Packet:
         :return: Packet body
         :rtype: str
         """
-        pass
+        return self.buf[5]
 
     def get_buf(self):
         """
@@ -237,7 +239,11 @@ class Packet:
         :return The parsed packet to the network format.
         :rtype: bytearray
         """
-        pass
+        ip_splits = self.get_source_server_ip().split(".")
+
+        return pack('>HHIHHHHI', self.get_version(), self.get_type(), self.get_length(),
+                    int(ip_splits[0]), int(ip_splits[1]), int(ip_splits[2]), int(ip_splits[3]),
+                    int(self.get_source_server_port())) + str.encode(self.get_body())
 
     def get_source_server_ip(self):
         """
@@ -245,7 +251,7 @@ class Packet:
         :return: Server IP address for the sender of the packet.
         :rtype: str
         """
-        pass
+        return self.buf[3]
 
     def get_source_server_port(self):
         """
@@ -253,7 +259,7 @@ class Packet:
         :return: Server Port address for the sender of the packet.
         :rtype: str
         """
-        pass
+        return self.buf[4]
 
     def get_source_server_address(self):
         """
@@ -261,7 +267,8 @@ class Packet:
         :return: Server address; The format is like ('192.168.001.001', '05335').
         :rtype: tuple
         """
-        pass
+        ret = (self.get_source_server_ip(), self.get_source_server_port())
+        return ret
 
 
 class PacketFactory:
@@ -270,17 +277,37 @@ class PacketFactory:
     """
 
     @staticmethod
-    def parse_buffer(buffer):
+    def parse_buffer(buf):
         """
         In this function we will make a new Packet from input buffer with struct class methods.
 
-        :param buffer: The buffer that should be parse to a validate packet format
+        :param buf: The buffer that should be parse to a validate packet format
 
         :return new packet
         :rtype: Packet
 
         """
-        pass
+
+        version = buf[0:2]
+        typ = buf[2:4]
+        length = buf[4:8]
+        ip = buf[8:16]
+        port = buf[16:20]
+        body = buf[20:]
+        version = unpack_from('>H', version)[0]
+        type = unpack_from('>H', typ)[0]
+        length = unpack_from('>I', length)[0]
+        ip_tuple = unpack_from('>HHHH', ip)
+        ip = ""
+        for t in ip_tuple:
+            ip += '.' + str(t)
+        ip = ip[1:]
+        port = str(unpack_from('>I', port)[0])
+        body = body.decode("utf-8")
+
+        pck = [version, type, length, ip, port, body]
+
+        return Packet(pck)
 
     @staticmethod
     def new_reunion_packet(type, source_address, nodes_array):
@@ -296,7 +323,19 @@ class PacketFactory:
         :return New reunion packet.
         :rtype Packet
         """
-        pass
+
+        # Don't add the source address to the nodes_array here!
+        entries_number = str(len(nodes_array))
+        if len(entries_number) == 1:
+            entries_number = '0' + entries_number
+        # We assume the order of nodes_array is handled in Peer
+        body = type + entries_number
+        for node in nodes_array:
+            body += node[0] + str(node[1])
+
+        length = len(body)
+        # version is 1, type is 5 (reunion),
+        return Packet([1, 5, length, source_address[0], source_address[1], body])
 
     @staticmethod
     def new_advertise_packet(type, source_server_address, neighbour=None):
@@ -313,7 +352,19 @@ class PacketFactory:
         :rtype Packet
 
         """
-        pass
+        if type == 'REQ':
+            body = type
+        elif type == 'RES':
+            if neighbour is None:
+                warnings.warn('in advertise response, neighbour is None')
+                return
+            body = type + neighbour[0] + neighbour[1]
+        else:
+            warnings.warn('Type was not correct')
+            return
+
+        # version is 1, type is 2 (advertise)
+        return Packet([1, 2, len(body), source_server_address[0], source_server_address[1], body])
 
     @staticmethod
     def new_join_packet(source_server_address):
@@ -326,7 +377,9 @@ class PacketFactory:
         :rtype Packet
 
         """
-        pass
+
+        # type is 3 (join), len(body) is 4, body is 'JOIN'
+        return Packet([1, 3, 4, source_server_address[0], source_server_address[1], 'JOIN'])
 
     @staticmethod
     def new_register_packet(type, source_server_address, address=(None, None)):
@@ -343,7 +396,19 @@ class PacketFactory:
         :rtype Packet
 
         """
-        pass
+        if type == 'RES':
+            body = type + 'ACK'
+        elif type == 'REQ':
+            if address is (None, None):
+                warnings.warn('in register request, address is None')
+                return
+            body = type + address[0] + address[1]
+        else:
+            warnings.warn('Type was not correct')
+            return
+
+        # version is 1, type is 1 (register)
+        return Packet([1, 1, len(body), source_server_address[0], source_server_address[1], body])
 
     @staticmethod
     def new_message_packet(message, source_server_address):
@@ -359,4 +424,54 @@ class PacketFactory:
         :return: New Message packet.
         :rtype: Packet
         """
-        pass
+        # version is 1, type is 4 (message)
+        return Packet([1, 4, len(message), source_server_address[0], source_server_address[1], message])
+
+
+class TestPacketFactory(unittest.TestCase):
+
+    def test_parse_buf(self):
+        buf = b'\x00\x01\x00\x04\x00\x00\x00\x0c\x00\xc0\x00\xa8\x00\x01\x00\x01\x00\x00\xfd\xe8Hello World!'
+        pck = PacketFactory.parse_buffer(buf)
+        self.assertEqual(pck.get_buf(), buf)
+
+    def test_new_reunion_packet(self):
+        pck = PacketFactory.new_reunion_packet(type='REQ', source_address=('127.000.000.001', '31315'),
+                                               nodes_array=[("127.000.000.001", '31315')])
+        self.assertEqual(pck.get_buf(),
+                         b'\x00\x01\x00\x05\x00\x00\x00\x19\x00\x7f\x00\x00\x00\x00\x00\x01\x00\x00zSREQ01127.000.000.00131315')
+
+        pck = PacketFactory.new_reunion_packet(type='RES', source_address=('127.000.000.001', '05356'),
+                                               nodes_array=[("127.000.000.001", '31315')])
+
+        self.assertEqual(pck.get_buf(),
+                         b'\x00\x01\x00\x05\x00\x00\x00\x19\x00\x7f\x00\x00\x00\x00\x00\x01\x00\x00\x14\xecRES01127.000.000.00131315')
+
+    def test_new_advertise_packet(self):
+        pck = PacketFactory.new_advertise_packet(type='REQ', source_server_address=("127.000.000.001", "31315"))
+        self.assertEqual(pck.get_buf(),
+                         b'\x00\x01\x00\x02\x00\x00\x00\x03\x00\x7f\x00\x00\x00\x00\x00\x01\x00\x00zSREQ')
+
+        pck = PacketFactory.new_advertise_packet(type='RES', source_server_address=("127.000.000.001", "05356"),
+                                                 neighbour=("127.000.000.001", "05356"))
+        self.assertEqual(pck.get_buf(),
+                         b'\x00\x01\x00\x02\x00\x00\x00\x17\x00\x7f\x00\x00\x00\x00\x00\x01\x00\x00\x14\xecRES127.000.000.00105356')
+
+    def test_new_join_packet(self):
+        pck = PacketFactory.new_join_packet(source_server_address=("127.000.000.001", "31315"))
+        self.assertEqual(pck.get_buf(),
+                         b'\x00\x01\x00\x03\x00\x00\x00\x04\x00\x7f\x00\x00\x00\x00\x00\x01\x00\x00zSJOIN')
+
+    def test_new_message_packet(self):
+        pck = PacketFactory.new_message_packet('Hi', source_server_address=("127.000.000.001", "31315"))
+        self.assertEqual(pck.get_buf(), b'\x00\x01\x00\x04\x00\x00\x00\x02\x00\x7f\x00\x00\x00\x00\x00\x01\x00\x00zSHi')
+
+    def test_new_register_packet(self):
+        pck = PacketFactory.new_register_packet('REQ', source_server_address=("127.000.000.001", "31315"),
+                                                address=("127.000.000.001", "31315"))
+        self.assertEqual(pck.get_buf(),
+                         b'\x00\x01\x00\x01\x00\x00\x00\x17\x00\x7f\x00\x00\x00\x00\x00\x01\x00\x00zSREQ127.000.000.00131315')
+
+        pck = PacketFactory.new_register_packet('RES', source_server_address=("127.000.000.001", "05356"))
+        self.assertEqual(pck.get_buf(),
+                         b'\x00\x01\x00\x01\x00\x00\x00\x06\x00\x7f\x00\x00\x00\x00\x00\x01\x00\x00\x14\xecRESACK')
