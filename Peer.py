@@ -54,10 +54,9 @@ class Peer:
             self.network_graph = NetworkGraph((server_ip, server_port))
         else:
             self.network_graph = None
-            self.send_register_request()
 
-    def send_register_request(self):
-        self.stream.add_node(server_address=self.root_address, set_register_connection=True)
+    # def send_register_request(self):
+    #     self.stream.add_node(server_address=self.root_address, set_register_connection=True)
 
     def start_user_interface(self):
         """
