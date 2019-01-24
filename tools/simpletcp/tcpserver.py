@@ -1,4 +1,4 @@
-from src.tools.simpletcp.serversocket import ServerSocket
+from tools.simpletcp.serversocket import ServerSocket
 
 
 class TCPServer:

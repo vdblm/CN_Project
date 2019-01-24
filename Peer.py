@@ -42,7 +42,22 @@ class Peer:
         :type is_root: bool
         :type root_address: tuple
         """
-        pass
+        self.stream = Stream(server_ip, server_port)
+        self.packet_factory = PacketFactory()
+        self.user_interface = UserInterface()
+        self.is_root = is_root
+        self.root_address = root_address
+
+        self.reunion_daemon = threading.Thread(target=self.run_reunion_daemon)
+        if is_root:
+            self.reunion_daemon.start()
+            self.network_graph = NetworkGraph((server_ip, server_port))
+        else:
+            self.network_graph = None
+            self.send_register_request()
+
+    def send_register_request(self):
+        self.stream.add_node(server_address=self.root_address, set_register_connection=True)
 
     def start_user_interface(self):
         """
@@ -50,7 +65,7 @@ class Peer:
 
         :return:
         """
-        pass
+        self.user_interface.run()
 
     def handle_user_interface_buffer(self):
         """

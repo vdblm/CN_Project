@@ -1,9 +1,8 @@
-    from src.tools.simpletcp.clientsocket import ClientSocket
+from tools.simpletcp.clientsocket import ClientSocket
 
 
 class Node:
-    # set_root is not imp
-    def __init__(self, server_address, set_root=False, set_register=False):
+    def __init__(self, server_address, set_register=False):
         """
         The Node object constructor.
 
@@ -15,7 +14,6 @@ class Node:
                an exception and we should detach this Node and clear its output buffer.
 
         :param server_address:
-        :param set_root:
         :param set_register:
         """
         self.server_ip = Node.parse_ip(server_address[0])
@@ -24,7 +22,14 @@ class Node:
         print("Server Address: ", server_address)
 
         self.out_buff = []
-        pass
+        self.is_register = set_register
+
+        # I think it needs threading
+        try:
+            self.client = ClientSocket(mode=self.server_ip, port=int(self.server_port))
+        except:
+            # Detaching the node???
+            self.out_buff.clear()
 
     def send_message(self):
         """
@@ -32,7 +37,11 @@ class Node:
 
         :return:
         """
-        pass
+        # I'm not sure of this
+        for msg in self.out_buff:
+            self.client.send(bytes(msg))
+
+        self.out_buff = []
 
     def add_message_to_out_buff(self, message):
         """

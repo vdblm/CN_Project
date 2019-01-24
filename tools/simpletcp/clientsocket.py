@@ -4,7 +4,7 @@ import socket
 
 class ClientSocket:
     # set single_use to False in the real code.
-    def __init__(self, mode, port, received_bytes=2048, single_use=True):
+    def __init__(self, mode, port, received_bytes=2048, single_use=False):
         """
 
         Handle the socket's mode.

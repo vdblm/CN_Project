@@ -32,7 +32,8 @@ class GraphNode:
 
 
 class NetworkGraph:
-    def __init__(self, root):
+    def __init__(self, root_address):
+        root = GraphNode(root_address)
         self.root = root
         root.alive = True
         self.nodes = [root]
