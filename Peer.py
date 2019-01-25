@@ -1,8 +1,10 @@
+import warnings
+
 from Stream import Stream
 from Packet import Packet, PacketFactory
 from UserInterface import UserInterface
-from tools.SemiNode import SemiNode
-from tools.NetworkGraph import NetworkGraph, GraphNode
+from tools.NetworkGraph import NetworkGraph
+from tools.Node import Node
 import time
 import threading
 
@@ -14,6 +16,7 @@ import threading
 """
 
 
+# TODO As we save nodes as dict, two nodes for root (register and join) will be the same. handle it!
 class Peer:
     def __init__(self, server_ip, server_port, is_root=False, root_address=None):
         """
@@ -43,20 +46,32 @@ class Peer:
         :type root_address: tuple
         """
         self.stream = Stream(server_ip, server_port)
+
         self.packet_factory = PacketFactory()
+
         self.user_interface = UserInterface()
+        self.start_user_interface()
+
         self.is_root = is_root
-        self.root_address = root_address
+        self.root_address = (Node.parse_ip(root_address[0]), Node.parse_port(root_address[1]))
+        self.address = self.stream.get_server_address()
+
+        self.parent_address = None
 
         self.reunion_daemon = threading.Thread(target=self.run_reunion_daemon)
         if is_root:
+            # dict, {peer_address: time}
+            self.peer_last_reunion_hello_time = {}
+            self.network_graph = NetworkGraph(self.address)
             self.reunion_daemon.start()
-            self.network_graph = NetworkGraph((server_ip, server_port))
-        else:
-            self.network_graph = None
 
-    # def send_register_request(self):
-    #     self.stream.add_node(server_address=self.root_address, set_register_connection=True)
+        else:
+            self.last_sent_reunion_time = None
+            self.reunion_mode = 'accept'
+            # the maximum depth is 8
+            self.time_interval = 9 * 2 * 2
+            self.reunion_failed = False
+            self.register_node = None
 
     def start_user_interface(self):
         """
@@ -79,7 +94,29 @@ class Peer:
             2. Don't forget to clear our UserInterface buffer.
         :return:
         """
-        pass
+        if self.is_root:
+            self.user_interface.buffer.clear()
+            return
+
+        for command in self.user_interface.buffer:
+            if command == 'Register':
+                if not self.is_root:
+                    pck = self.packet_factory.new_register_packet('REQ', self.address, address=self.root_address)
+                    self.stream.add_node(self.root_address, set_register_connection=True)
+                    self.stream.add_message_to_out_buff(self.root_address, pck.get_buf())
+            elif command == 'Advertise':
+                if not self.is_root:
+                    pck = self.packet_factory.new_advertise_packet(type='REQ', source_server_address=self.address)
+                    # TODO what to do if there is no node with root address?
+                    self.stream.add_message_to_out_buff(self.root_address, pck.get_buf())
+
+            elif len(command.split(' ')) > 2 and command.split(' ')[0] == 'SendMessage':
+                pck = self.packet_factory.new_message_packet(command.split(' ')[1], self.address)
+                self.send_broadcast_packet(pck)
+            else:
+                warnings.warn('Incorrect command')
+
+        self.user_interface.buffer.clear()
 
     def run(self):
         """
@@ -99,7 +136,32 @@ class Peer:
 
         :return:
         """
-        pass
+        if not self.is_root and self.reunion_failed:
+            # just receive advertise responses
+            # do we need to clear buffer when reunion failed?
+            removed_bufs = []
+            for buf in self.stream.read_in_buf():
+                pck = self.packet_factory.parse_buffer(buf)
+                if pck is None:
+                    continue
+                if pck.get_type() == 2:
+                    # handle the advertise packet
+                    self.handle_packet(pck)
+                    removed_bufs.append(buf)
+
+        else:
+            # do regularly
+            for buf in self.stream.read_in_buf():
+                pck = self.packet_factory.parse_buffer(buf)
+                if pck is None:
+                    continue
+                self.handle_packet(pck)
+            self.handle_user_interface_buffer()
+            self.stream.send_out_buf_messages()
+
+        self.stream.clear_in_buff()
+        # sleep for 2 secs
+        time.sleep(2)
 
     def run_reunion_daemon(self):
         """SendMessage: The following string will be added to a new Message packet and broadcast through the network.
@@ -126,7 +188,46 @@ class Peer:
 
         :return:
         """
-        pass
+        t = time.time()
+        if self.is_root:
+            removed_clients = []
+            for client_address in self.peer_last_reunion_hello_time.keys():
+                # TODO calculate expected time of each client
+                wait_time = (self.network_graph.get_node_depth(client_address) + 1) * 2
+                if int(t - self.peer_last_reunion_hello_time[client_address]) > wait_time:
+                    # client time is over.
+                    # TODO remove client from the network_graph and turn off its subtree
+                    self.network_graph.remove_node(client_address)
+                    # TODO remove from peer last reunion dict
+                    removed_clients.append(client_address)
+            # removing
+            [self.peer_last_reunion_hello_time.pop(client_address) for client_address in removed_clients]
+
+        else:
+            send = True
+            if self.reunion_mode == 'pending':
+                if int(t - self.last_sent_reunion_time) > self.time_interval:
+                    # time_out. need to send advertise again
+                    pck = self.packet_factory.new_advertise_packet(type='REQ', source_server_address=self.address)
+                    self.stream.add_message_to_out_buff(self.root_address, pck.get_buf())
+                    # TODO send the reunion again?
+                    self.reunion_failed = True
+                else:
+                    # nothing
+                    send = False
+            else:
+                self.reunion_failed = False
+            if send:
+                self.last_sent_reunion_time = t
+                self.reunion_mode = 'pending'
+                pck = self.packet_factory.new_reunion_packet(type='REQ', source_address=self.address,
+                                                             nodes_array=[self.address])
+                self.stream.add_message_to_out_buff(self.parent_address, pck.get_buf())
+                # Im not sure of this
+                self.stream.send_out_buf_messages(only_register=True)
+
+        # sleep for 2 seconds (because it takes 2 secs for each peer to send its reunions). The TA said to wait 4 secs.
+        time.sleep(2)
 
     def send_broadcast_packet(self, broadcast_packet):
         """
@@ -141,7 +242,9 @@ class Peer:
 
         :return:
         """
-        pass
+        for node in self.stream.nodes:
+            if not node.is_register:
+                self.stream.add_message_to_out_buff(node.get_server_address(), broadcast_packet.get_buf())
 
     def handle_packet(self, packet):
         """
@@ -156,7 +259,21 @@ class Peer:
         :type packet Packet
 
         """
-        pass
+
+        # packet validation
+        if len(packet.get_body()) != packet.get_length():
+            warnings.warn('packet length is not correct')
+            return
+        if packet.get_type() == 1:
+            self.__handle_register_packet(packet)
+        elif packet.get_type() == 2:
+            self.__handle_advertise_packet(packet)
+        elif packet.get_type() == 3:
+            self.__handle_join_packet(packet)
+        elif packet.get_type() == 4:
+            self.__handle_message_packet(packet)
+        elif packet.get_type() == 5:
+            self.__handle_reunion_packet(packet)
 
     def __check_registered(self, source_address):
         """
@@ -165,9 +282,14 @@ class Peer:
         :param source_address: Unknown IP/Port address.
         :type source_address: tuple
 
-        :return:
+        :rtype: bool
         """
-        pass
+
+        # return True when it is registered
+        node = self.stream.get_node_by_server(source_address[0], source_address[1])
+        if node is None or node.is_register is False:
+            return False
+        return True
 
     def __handle_advertise_packet(self, packet):
         """
@@ -198,7 +320,36 @@ class Peer:
 
         :return:
         """
-        pass
+        if not self.__check_registered(packet.get_source_server_address()):
+            warnings.warn(
+                'not registered node wants to advertise, node address: ' + str(packet.get_source_server_address()))
+            return
+        # check if type of the packet is request
+        if packet.get_body()[0:3] == 'REQ':
+            if not self.is_root:
+                warnings.warn('received a request advertise packet on a non-root peer')
+            else:
+                # send the response
+                neighbour = self.__get_neighbour(packet.get_source_server_address())
+                pck = self.packet_factory.new_advertise_packet(type='RES', source_server_address=self.address,
+                                                               neighbour=neighbour)
+                self.stream.add_message_to_out_buff(packet.get_source_server_address(), pck.get_buf())
+
+        else:
+            neighbour_ip = packet.get_body()[3:18]
+            neighbour_port = packet.get_body()[18:23]
+            # update parent
+            self.parent_address = (neighbour_ip, neighbour_port)
+
+            # Add parent node to the stream
+            self.stream.add_node(self.parent_address)
+
+            # make a join packet
+            pck = self.packet_factory.new_join_packet(self.address)
+            self.stream.add_message_to_out_buff(self.parent_address, pck.get_buf())
+
+            # start reunion daemon
+            self.reunion_daemon.run()
 
     def __handle_register_packet(self, packet):
         """
@@ -215,7 +366,17 @@ class Peer:
         :type packet Packet
         :return:
         """
-        pass
+        if self.is_root:
+            if not self.__check_registered(packet.get_source_server_address()):
+                self.stream.add_node(packet.get_source_server_address(), set_register_connection=True)
+                pck = self.packet_factory.new_register_packet(type='RES', source_server_address=self.address)
+                self.stream.add_message_to_out_buff(address=packet.get_source_server_address(),
+                                                    message=pck.get_buf())
+            else:
+                warnings.warn('an already registered node wants to register again')
+
+        else:
+            warnings.warn('register msg arrived at a non-root peer')
 
     def __check_neighbour(self, address):
         """
@@ -228,7 +389,12 @@ class Peer:
         :return: Whether is address in our neighbours or not.
         :rtype: bool
         """
-        pass
+        node = self.stream.get_node_by_server(address[0], address[1])
+        if node is None:
+            return False
+        elif node.is_register:
+            return False
+        return True
 
     def __handle_message_packet(self, packet):
         """
@@ -244,7 +410,10 @@ class Peer:
 
         :return:
         """
-        pass
+        pck = self.packet_factory.new_message_packet(packet.get_body(), self.address)
+        for node in self.stream.nodes:
+            if not node.is_register and node.address != packet.get_source_server_address():
+                self.stream.add_message_to_out_buff(node.address, pck.get_buf())
 
     def __handle_reunion_packet(self, packet):
         """
@@ -269,7 +438,53 @@ class Peer:
         :param packet: Arrived reunion packet
         :return:
         """
-        pass
+        try:
+            body = packet.get_body()
+            nodes_array = []
+            i = 5
+            while i < len(body):
+                nodes_array.append((body[i:(i + 15)], body[(i + 15):(i + 20)]))
+                i += 20
+        except:
+            warnings.warn('reunion packet has invalid body (nodes array is not correct)')
+            return
+
+        # reunion hello
+        t = time.time()
+        if packet.get_body()[0:3] == 'REQ':
+            if self.is_root:
+                # Answer reunion hello back
+                self.peer_last_reunion_hello_time[nodes_array[0]] = t
+                nodes_array.reverse()
+                pck = self.packet_factory.new_reunion_packet(type='RES', source_address=self.address,
+                                                             nodes_array=nodes_array)
+                neighbour_addr = nodes_array[0]
+                self.stream.add_message_to_out_buff(neighbour_addr, pck.get_buf())
+            else:
+                # add your ip/port
+                nodes_array.append(self.address)
+                pck = self.packet_factory.new_reunion_packet(type='REQ', source_address=self.address,
+                                                             nodes_array=nodes_array)
+                self.stream.add_message_to_out_buff(self.parent_address, pck.get_buf())
+
+        # reunion hello back
+        elif packet()[0:3] == 'RES':
+            if nodes_array[0] != self.address:
+                warnings.warn(
+                    'the last address in the reunion back packet body and the receiver address are not the same')
+                return
+            if len(nodes_array) == 1:
+                # the end client
+                self.reunion_mode = 'accept'
+                self.time_interval = t - self.last_sent_reunion_time
+                self.last_sent_reunion_time = t
+            elif len(nodes_array) > 1:
+                # the middle client
+                pck = self.packet_factory.new_reunion_packet(type='RES', source_address=self.address,
+                                                             nodes_array=nodes_array[1:])
+                self.stream.add_message_to_out_buff(nodes_array[1], pck.get_buf())
+            else:
+                warnings.warn('the reunion back packet has no nodes array in its body')
 
     def __handle_join_packet(self, packet):
         """
@@ -283,7 +498,12 @@ class Peer:
 
         :return:
         """
-        pass
+        if self.stream.get_node_by_server(packet.get_source_server_ip(), packet.get_source_server_port()) is None:
+            self.stream.add_node(packet.get_source_server_address())
+            # Do nothing else??
+        else:
+            warnings.warn('an already joined peer wants to join again, the address is: ' + str(
+                packet.get_source_server_address()))
 
     def __get_neighbour(self, sender):
         """
@@ -296,4 +516,9 @@ class Peer:
         :param sender: Sender of the packet
         :return: The specified neighbour for the sender; The format is like ('192.168.001.001', '05335').
         """
-        pass
+        node = self.network_graph.find_live_nodes(sender)
+        if node is not None:
+            return node.address
+        else:
+            warnings.warn('There is no neighbour node for the sender')
+            return None
