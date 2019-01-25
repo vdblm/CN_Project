@@ -1,2 +1,7 @@
 # ide
 .idea/
+.DS_Store
+__pycache__/
+tools/__pycache__/
+tools/simpletcp/__pycache__/
+
