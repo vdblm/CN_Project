@@ -1,3 +1,5 @@
+import warnings
+
 from tools.simpletcp.clientsocket import ClientSocket
 
 
@@ -19,17 +21,21 @@ class Node:
         self.server_ip = Node.parse_ip(server_address[0])
         self.server_port = Node.parse_port(server_address[1])
 
-        print("Server Address: ", server_address)
+        self.server_address = (self.server_ip, self.server_port)
+
+        print("Node added with Server Address: ", self.server_address)
 
         self.out_buff = []
         self.is_register = set_register
 
-        # I think it needs threading
+        # TODO im not sure of this.
         try:
             self.client = ClientSocket(mode=self.server_ip, port=int(self.server_port))
         except:
+            warnings.warn('Exception in creating the client socket for node: ' + str(self.server_address))
             # Detaching the node???
             self.out_buff.clear()
+            raise Exception
 
     def send_message(self):
         """
@@ -37,11 +43,13 @@ class Node:
 
         :return:
         """
-        # I'm not sure of this
+        # TODO I'm not sure of this. Do we need to check the response of client sending (to be b'ACK')
         for msg in self.out_buff:
-            self.client.send(bytes(msg))
+            res = self.client.send(bytes(msg))
+            if res != b'ACK':
+                warnings.warn('not received b\'ACK\' for node: ' + str(self.server_address))
 
-        self.out_buff = []
+        self.out_buff.clear()
 
     def add_message_to_out_buff(self, message):
         """
@@ -65,7 +73,7 @@ class Node:
         :return: Server address in a pretty format.
         :rtype: tuple
         """
-        return self.server_ip, self.server_port
+        return self.server_address
 
     @staticmethod
     def parse_ip(ip):
