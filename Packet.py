@@ -119,7 +119,7 @@
                 |             Message (#Length Chars)            |
                 |________________________________________________|
 
-            The message that want to broadcast to hole network. Right now this type only includes a plain text.
+            The message that want to broadcast to whole network. Right now this type only includes a plain text.
         
         Reunion:
             Hello:
@@ -180,6 +180,12 @@
 import unittest
 import warnings
 from struct import *
+
+from tools.Node import Node
+
+import logging
+
+logging.basicConfig(format='%(asctime)s %(message)s')
 
 
 class Packet:
@@ -303,6 +309,8 @@ class PacketFactory:
                 ip += '.' + str(t)
             ip = ip[1:]
             port = str(unpack_from('>I', port)[0])
+            ip = Node.parse_ip(ip)
+            port = Node.parse_port(port)
             body = body.decode("utf-8")
 
             pck = [version, type, length, ip, port, body]
@@ -310,7 +318,7 @@ class PacketFactory:
             return Packet(pck)
         except:
             # any error means the packet's format was wrong
-            warnings.warn('received packet format was wrong')
+            logging.warning('received packet format was wrong')
             return None
 
     @staticmethod
@@ -360,11 +368,11 @@ class PacketFactory:
             body = type
         elif type == 'RES':
             if neighbour is None:
-                warnings.warn('in advertise response, neighbour is None')
+                logging.warning('in advertise response, neighbour is None')
                 return
             body = type + neighbour[0] + neighbour[1]
         else:
-            warnings.warn('Type was not correct')
+            logging.warning('Type was not correct')
             return
 
         # version is 1, type is 2 (advertise)
@@ -404,11 +412,11 @@ class PacketFactory:
             body = type + 'ACK'
         elif type == 'REQ':
             if address is (None, None):
-                warnings.warn('in register request, address is None')
+                logging.warning('in register request, address is None')
                 return
             body = type + address[0] + address[1]
         else:
-            warnings.warn('Type was not correct')
+            logging.warning('Type was not correct')
             return
 
         # version is 1, type is 1 (register)

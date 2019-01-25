@@ -5,6 +5,10 @@ from tools.simpletcp.tcpserver import TCPServer
 from tools.Node import Node
 import threading
 
+import logging
+
+logging.basicConfig(format='%(asctime)s %(message)s')
+
 
 class Stream:
 
@@ -43,11 +47,9 @@ class Stream:
             queue.put(bytes('ACK', 'utf8'))
             self._server_in_buf.append(data)
 
-        def tcp_server():
-            server = TCPServer(ip, port, callback)
-            server.run()
+        server = TCPServer(ip, int(port), callback)
 
-        tcp = threading.Thread(target=tcp_server)
+        tcp = threading.Thread(target=server.run)
         tcp.start()
 
     def get_server_address(self):
@@ -85,7 +87,7 @@ class Stream:
             else:
                 self.nodes[server_address] = node
         except:
-            warnings.warn('node did not added')
+            logging.warning('node did not added')
 
     def remove_node(self, node):
         """
@@ -107,7 +109,7 @@ class Stream:
         else:
             t = self.nodes.pop(server_address, None)
         if t is None:
-            warnings.warn(
+            logging.warning(
                 'wants to remove a non-existing node in the stream, address: ' + str(self.get_server_address()))
 
     def get_node_by_server(self, ip, port, is_register=False):
@@ -124,7 +126,7 @@ class Stream:
 
         :return: The node that input address.
         :rtype: Node
-        :rtype: bool
+
         """
 
         node_address = (Node.parse_ip(ip), Node.parse_port(port))
@@ -132,9 +134,9 @@ class Stream:
             node = self.register_nodes.get(node_address)
         else:
             node = self.nodes.get(node_address)
-        if node is None:
-            warnings.warn(
-                'node does not exit, node: ' + str(node_address) + ' stream address: ' + str(self.get_server_address()))
+        # if node is None:
+        #     logging.warning(
+        #         'node does not exit, node: ' + str(node_address) + ' stream address: ' + str(self.get_server_address()))
         return node
 
     def add_message_to_out_buff(self, address, message, is_register=False):
@@ -156,7 +158,7 @@ class Stream:
         else:
             node = self.nodes.get(address)
         if node is None:
-            warnings.warn(
+            logging.warning(
                 "There is no node with this address: " + str(address) + " in Stream: " + str(self.get_server_address()))
         else:
             node.add_message_to_out_buff(message)
@@ -187,7 +189,7 @@ class Stream:
         try:
             node.send_message()
         except:
-            warnings.warn('Node could not send message to dest peer. Maybe the dest peer is turned off')
+            logging.warning('Node could not send message to dest peer. Maybe the dest peer is turned off')
             if node.is_register:
                 self.register_nodes.pop(node.get_server_address(), None)
             else:
@@ -199,9 +201,13 @@ class Stream:
 
         :return:
         """
+        register_nodes = self.register_nodes.copy().values()
+        nodes = self.nodes.copy().values()
         if only_register:
-            for node in self.register_nodes.values():
+            for node in register_nodes:
                 self._send_messages_to_node(node)
         else:
-            for node in self.nodes.values():
+            for node in nodes:
+                self._send_messages_to_node(node)
+            for node in register_nodes:
                 self._send_messages_to_node(node)

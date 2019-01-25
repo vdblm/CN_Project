@@ -1,6 +1,9 @@
 import warnings
 
 from tools.simpletcp.clientsocket import ClientSocket
+import logging
+
+logging.basicConfig(format='%(asctime)s %(message)s')
 
 
 class Node:
@@ -23,7 +26,7 @@ class Node:
 
         self.server_address = (self.server_ip, self.server_port)
 
-        print("Node added with Server Address: ", self.server_address)
+        logging.warning("Node added with Server Address: " + str(self.server_address))
 
         self.out_buff = []
         self.is_register = set_register
@@ -32,7 +35,7 @@ class Node:
         try:
             self.client = ClientSocket(mode=self.server_ip, port=int(self.server_port))
         except:
-            warnings.warn('Exception in creating the client socket for node: ' + str(self.server_address))
+            logging.warning('Exception in creating the client socket for node: ' + str(self.server_address))
             # Detaching the node???
             self.out_buff.clear()
             raise Exception
@@ -46,8 +49,9 @@ class Node:
         # TODO I'm not sure of this. Do we need to check the response of client sending (to be b'ACK')
         for msg in self.out_buff:
             res = self.client.send(bytes(msg))
+            logging.info('sent message: ' + str(bytes(msg)) + ' to ' + str(self.server_address))
             if res != b'ACK':
-                warnings.warn('not received b\'ACK\' for node: ' + str(self.server_address))
+                logging.warning('not received b\'ACK\' for node: ' + str(self.server_address))
 
         self.out_buff.clear()
 

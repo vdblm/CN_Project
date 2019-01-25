@@ -2,6 +2,10 @@ import time
 import unittest
 import warnings
 
+import logging
+
+logging.basicConfig(format='%(asctime)s %(message)s')
+
 
 class GraphNode:
     def __init__(self, address):
@@ -107,6 +111,8 @@ class NetworkGraph:
         node = self.find_node(node_address[0], node_address[1])
         if node.parent is not None:
             node.parent.children.remove(node)
+        for child in node.children:
+            child.set_parent(None)
         self.turn_off_node(node_address, sub_tree=True)
         self.nodes.remove(node)
 
@@ -128,7 +134,7 @@ class NetworkGraph:
         :param father_address: Father address of the new node
 
         :type ip: str
-        :type port: int
+        :type port: str
         :type father_address: tuple
 
 
@@ -136,7 +142,7 @@ class NetworkGraph:
         """
         father_node = self.find_node(father_address[0], father_address[1])
         if father_node is None:
-            warnings.warn("There is no node with father_address")
+            logging.warning("There is no node with father_address")
         elif self.find_node(ip, port) is None:
             node = GraphNode(address=(ip, port))
             node.set_parent(father_node)
@@ -144,42 +150,40 @@ class NetworkGraph:
             self.nodes.append(node)
             self.node_depth[(ip, port)] = self.node_depth[father_address] + 1
         else:
-            warnings.warn('Wants to add an existing node with address: ' + str(ip) + " " + str(port))
+            logging.warning('Wants to add an existing node with address: ' + str(ip) + " " + str(port))
 
 
 class TestNetworkGraph(unittest.TestCase):
 
     def initiate(self):
-        root_address = ('192.168.1.1', 2005)
+        root_address = ('192.168.1.1', "2005")
         ng = NetworkGraph(root_address=root_address)
-        ng.add_node(ip='192.168.1.2', port=125, father_address=root_address)
-        ng.add_node(ip='192.168.1.3', port=125, father_address=root_address)
-        ng.add_node(ip='192.168.1.4', port=125, father_address=('192.168.1.2', 125))
-        ng.add_node(ip='192.168.1.5', port=125, father_address=('192.168.1.2', 125))
+        ng.add_node(ip='192.168.1.2', port="125", father_address=root_address)
+        ng.add_node(ip='192.168.1.3', port="125", father_address=root_address)
+        ng.add_node(ip='192.168.1.4', port="125", father_address=('192.168.1.2', "125"))
+        ng.add_node(ip='192.168.1.5', port="125", father_address=('192.168.1.2', "125"))
         return ng
 
     def test_find_live_node_one(self):
         ng = self.initiate()
-        node = ng.find_live_node(('192.168.1.6', 125))
-        self.assertEqual(node.address, ('192.168.1.3', 125))
+        node = ng.find_live_node(('192.168.1.6', "125"))
+        self.assertEqual(node.address, ('192.168.1.3', "125"))
 
     def test_find_live_node_two(self):
         ng = self.initiate()
-        node = ng.find_live_node(('192.168.1.3', 125))
-        self.assertEqual(node.address, ('192.168.1.4', 125))
+        node = ng.find_live_node(('192.168.1.3', "125"))
+        self.assertEqual(node.address, ('192.168.1.4', "125"))
 
     def test_find_live_node_three(self):
         ng = self.initiate()
-        ng.turn_off_node(('192.168.1.2', 125))
-        ng.remove_node(('192.168.1.3', 125))
-        node = ng.find_live_node(('192.168.1.6', 125))
-        self.assertEqual(node.address, ('192.168.1.1', 2005))
+        ng.turn_off_node(('192.168.1.2', "125"))
+        ng.remove_node(('192.168.1.3', "125"))
+        node = ng.find_live_node(('192.168.1.6', "125"))
+        self.assertEqual(node.address, ('192.168.1.1', "2005"))
 
     def test_remove_node(self):
         ng = self.initiate()
-        ng.remove_node(('192.168.1.2', 125))
-        self.assertEqual(ng.find_node('192.168.1.2', 125), None)
-        self.assertEqual(ng.find_node('192.168.1.4', 125).alive, False)
-        self.assertEqual(ng.find_node('192.168.1.5', 125).alive, False)
-
-
+        ng.remove_node(('192.168.1.2', "125"))
+        self.assertEqual(ng.find_node('192.168.1.2', "125"), None)
+        self.assertEqual(ng.find_node('192.168.1.4', "125").alive, False)
+        self.assertEqual(ng.find_node('192.168.1.5', "125").alive, False)
