@@ -1,4 +1,5 @@
 import time
+import unittest
 import warnings
 
 
@@ -35,8 +36,12 @@ class NetworkGraph:
     def __init__(self, root_address):
         root = GraphNode(root_address)
         self.root = root
-        root.alive = True
         self.nodes = [root]
+        # for each address it's {address: depth}
+        self.node_depth = {root_address: 0}
+
+    def get_node_depth(self, address):
+        return self.node_depth[address]
 
     def find_live_node(self, sender):
         """
@@ -58,20 +63,22 @@ class NetworkGraph:
         """
         to_visit = [self.root]
         visited = set()
-        l = len(to_visit)
-        while l > 0:
+        while len(to_visit) > 0:
             node = to_visit[0]
             to_visit = to_visit[1:]
             if node.address == sender:
                 visited.add(node)
                 continue
-            if node.alive and len(node.children) < 2:
+            # when the node is off, we won't advertise its children
+            if not node.alive:
+                visited.add(node)
+                continue
+            if len(node.children) < 2:
                 return node
             visited.add(node)
             for child in node.children:
                 if child not in visited:
                     to_visit.append(child)
-            l = len(to_visit)
         return None
 
     def find_node(self, ip, port):
@@ -81,24 +88,32 @@ class NetworkGraph:
                 return node
         return None
 
-    def turn_on_node(self, node_address):
+    def turn_on_node(self, node_address, sub_tree=False):
         node = self.find_node(node_address[0], node_address[1])
         node.alive = True
+        if sub_tree:
+            for child in node.children:
+                self.turn_on_node(child.address, sub_tree=True)
 
-    def turn_off_node(self, node_address):
+    def turn_off_node(self, node_address, sub_tree=False):
         node = self.find_node(node_address[0], node_address[1])
         node.alive = False
+        if sub_tree:
+            for child in node.children:
+                self.turn_off_node(child.address, sub_tree=True)
 
     def remove_node(self, node_address):
+        # remove the node and turn off its subtree
         node = self.find_node(node_address[0], node_address[1])
         if node.parent is not None:
             node.parent.children.remove(node)
-        self.remove_subtree(node)
-
-    def remove_subtree(self, node):
-        for child in node.children:
-            self.remove_subtree(child)
+        self.turn_off_node(node_address, sub_tree=True)
         self.nodes.remove(node)
+
+    # def remove_subtree(self, node):
+    #     for child in node.children:
+    #         self.remove_subtree(child)
+    #     self.nodes.remove(node)
 
     def add_node(self, ip, port, father_address):
         """
@@ -127,17 +142,16 @@ class NetworkGraph:
             node.set_parent(father_node)
             father_node.add_child(node)
             self.nodes.append(node)
-
-
-import unittest
+            self.node_depth[(ip, port)] = self.node_depth[father_address] + 1
+        else:
+            warnings.warn('Wants to add an existing node with address: ' + str(ip) + " " + str(port))
 
 
 class TestNetworkGraph(unittest.TestCase):
 
     def initiate(self):
         root_address = ('192.168.1.1', 2005)
-        root = GraphNode(address=root_address)
-        ng = NetworkGraph(root=root)
+        ng = NetworkGraph(root_address=root_address)
         ng.add_node(ip='192.168.1.2', port=125, father_address=root_address)
         ng.add_node(ip='192.168.1.3', port=125, father_address=root_address)
         ng.add_node(ip='192.168.1.4', port=125, father_address=('192.168.1.2', 125))
@@ -154,7 +168,18 @@ class TestNetworkGraph(unittest.TestCase):
         node = ng.find_live_node(('192.168.1.3', 125))
         self.assertEqual(node.address, ('192.168.1.4', 125))
 
+    def test_find_live_node_three(self):
+        ng = self.initiate()
+        ng.turn_off_node(('192.168.1.2', 125))
+        ng.remove_node(('192.168.1.3', 125))
+        node = ng.find_live_node(('192.168.1.6', 125))
+        self.assertEqual(node.address, ('192.168.1.1', 2005))
+
     def test_remove_node(self):
         ng = self.initiate()
         ng.remove_node(('192.168.1.2', 125))
-        self.assertEqual(len(ng.nodes), 2)
+        self.assertEqual(ng.find_node('192.168.1.2', 125), None)
+        self.assertEqual(ng.find_node('192.168.1.4', 125).alive, False)
+        self.assertEqual(ng.find_node('192.168.1.5', 125).alive, False)
+
+
