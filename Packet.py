@@ -287,27 +287,31 @@ class PacketFactory:
         :rtype: Packet
 
         """
+        try:
+            version = buf[0:2]
+            typ = buf[2:4]
+            length = buf[4:8]
+            ip = buf[8:16]
+            port = buf[16:20]
+            body = buf[20:]
+            version = unpack_from('>H', version)[0]
+            type = unpack_from('>H', typ)[0]
+            length = unpack_from('>I', length)[0]
+            ip_tuple = unpack_from('>HHHH', ip)
+            ip = ""
+            for t in ip_tuple:
+                ip += '.' + str(t)
+            ip = ip[1:]
+            port = str(unpack_from('>I', port)[0])
+            body = body.decode("utf-8")
 
-        version = buf[0:2]
-        typ = buf[2:4]
-        length = buf[4:8]
-        ip = buf[8:16]
-        port = buf[16:20]
-        body = buf[20:]
-        version = unpack_from('>H', version)[0]
-        type = unpack_from('>H', typ)[0]
-        length = unpack_from('>I', length)[0]
-        ip_tuple = unpack_from('>HHHH', ip)
-        ip = ""
-        for t in ip_tuple:
-            ip += '.' + str(t)
-        ip = ip[1:]
-        port = str(unpack_from('>I', port)[0])
-        body = body.decode("utf-8")
+            pck = [version, type, length, ip, port, body]
 
-        pck = [version, type, length, ip, port, body]
-
-        return Packet(pck)
+            return Packet(pck)
+        except:
+            # any error means the packet's format was wrong
+            warnings.warn('received packet format was wrong')
+            return None
 
     @staticmethod
     def new_reunion_packet(type, source_address, nodes_array):
